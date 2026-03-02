@@ -7,9 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { BookOpen, RefreshCw, LogIn, Shield, Settings } from 'lucide-react';
+import { BookOpen, RefreshCw, LogIn, Shield, Settings, User, Mail } from 'lucide-react';
+
+type LoginMode = 'siswa' | 'admin';
 
 export default function LoginPage() {
+  const [mode, setMode] = useState<LoginMode>('siswa');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,7 +35,8 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const loginEmail = mode === 'siswa' ? `${username}@student.cbt` : email;
+      const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
       if (error) throw error;
 
       await refreshProfile();
@@ -44,13 +49,14 @@ export default function LoginPage() {
       }
       toast.success('Login berhasil!');
     } catch (err: any) {
-      toast.error(err.message || 'Login gagal');
+      toast.error(mode === 'siswa' ? 'Username atau password salah' : 'Email atau password salah');
     } finally {
       setLoading(false);
     }
   };
 
   const handleRefresh = () => {
+    setUsername('');
     setEmail('');
     setPassword('');
     toast.info('Form direset');
@@ -74,24 +80,69 @@ export default function LoginPage() {
         </div>
 
         <div className="glass-card rounded-2xl p-8">
+          {/* Mode Toggle */}
+          <div className="flex rounded-xl bg-secondary/50 p-1 mb-6">
+            <button
+              type="button"
+              onClick={() => setMode('siswa')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                mode === 'siswa'
+                  ? 'gradient-primary text-primary-foreground shadow-neon'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <User className="w-4 h-4" />
+              Siswa
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('admin')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                mode === 'admin'
+                  ? 'gradient-primary text-primary-foreground shadow-neon'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Shield className="w-4 h-4" />
+              Admin
+            </button>
+          </div>
+
           <div className="flex items-center gap-2 mb-6">
-            <Shield className="w-5 h-5 text-primary" />
-            <h2 className="text-xl font-semibold text-card-foreground">Masuk ke Sistem</h2>
+            {mode === 'siswa' ? <User className="w-5 h-5 text-primary" /> : <Shield className="w-5 h-5 text-primary" />}
+            <h2 className="text-xl font-semibold text-card-foreground">
+              {mode === 'siswa' ? 'Login Siswa' : 'Login Admin'}
+            </h2>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-5">
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-card-foreground">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="Masukkan email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="h-12 bg-secondary/50 border-border focus:border-primary"
-              />
-            </div>
+            {mode === 'siswa' ? (
+              <div className="space-y-2">
+                <Label htmlFor="username" className="text-card-foreground">Username</Label>
+                <Input
+                  id="username"
+                  type="text"
+                  placeholder="Masukkan username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                  className="h-12 bg-secondary/50 border-border focus:border-primary"
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-card-foreground">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="Masukkan email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="h-12 bg-secondary/50 border-border focus:border-primary"
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="password" className="text-card-foreground">Password</Label>
@@ -131,7 +182,7 @@ export default function LoginPage() {
             </div>
           </form>
 
-          {!checkingAdmin && showSetup && (
+          {!checkingAdmin && showSetup && mode === 'admin' && (
             <Link
               to="/setup"
               className="flex items-center justify-center gap-2 mt-5 p-3 rounded-xl bg-accent/10 border border-accent/20 text-sm text-card-foreground hover:bg-accent/20 transition-colors"
