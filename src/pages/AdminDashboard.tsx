@@ -137,6 +137,21 @@ function PesertaPanel() {
 
   useEffect(() => { fetchPeserta(); }, []);
 
+  const callManageStudent = async (body: any) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manage-student`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session?.access_token}`,
+      },
+      body: JSON.stringify(body),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Gagal');
+    return result;
+  };
+
   const handleSave = async () => {
     if (!form.name || !form.username || (!editId && !form.password)) {
       toast.error('Lengkapi semua field');
@@ -145,27 +160,10 @@ function PesertaPanel() {
 
     try {
       if (editId) {
-        await supabase.from('profiles').update({
-          name: form.name, username: form.username, kelas: form.kelas || null
-        }).eq('id', editId);
+        await callManageStudent({ action: 'update', id: editId, ...form });
         toast.success('Peserta diperbarui');
       } else {
-        const email = `${form.username}@cbt.local`;
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email,
-          password: form.password,
-        });
-        if (authError) throw authError;
-
-        if (authData.user) {
-          await supabase.from('profiles').insert({
-            auth_id: authData.user.id,
-            name: form.name,
-            username: form.username,
-            role: 'peserta',
-            kelas: form.kelas || null,
-          });
-        }
+        await callManageStudent({ action: 'create', ...form });
         toast.success('Peserta ditambahkan');
       }
       setDialogOpen(false);
@@ -185,9 +183,13 @@ function PesertaPanel() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Hapus peserta ini?')) return;
-    await supabase.from('profiles').delete().eq('id', id);
-    toast.success('Peserta dihapus');
-    fetchPeserta();
+    try {
+      await callManageStudent({ action: 'delete', id });
+      toast.success('Peserta dihapus');
+      fetchPeserta();
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal menghapus');
+    }
   };
 
   const filtered = peserta.filter(p =>
@@ -215,7 +217,7 @@ function PesertaPanel() {
             <div className="space-y-4 mt-4">
               <div><Label>Nama</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
               <div><Label>Username</Label><Input value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} /></div>
-              {!editId && <div><Label>Password</Label><Input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} /></div>}
+              <div><Label>Password{editId ? ' (kosongkan jika tidak diubah)' : ''}</Label><Input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder={editId ? 'Biarkan kosong' : ''} /></div>
               <div><Label>Kelas</Label><Input value={form.kelas} onChange={e => setForm(f => ({ ...f, kelas: e.target.value }))} /></div>
               <Button onClick={handleSave} className="w-full gradient-primary text-primary-foreground">Simpan</Button>
             </div>
