@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { signOut } from '@/lib/auth';
@@ -9,9 +9,10 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import Papa from 'papaparse';
 import {
   BookOpen, Users, FileText, GraduationCap, BarChart3,
-  LogOut, Plus, Pencil, Trash2, Search
+  LogOut, Plus, Pencil, Trash2, Search, Upload, Download
 } from 'lucide-react';
 
 type Tab = 'peserta' | 'soal' | 'mapel' | 'nilai';
@@ -386,6 +387,79 @@ function SoalPanel() {
     fetchData();
   };
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+
+  const downloadTemplate = () => {
+    const template = 'soal,pilihan_a,pilihan_b,pilihan_c,pilihan_d,pilihan_e,jawaban\n"Berapakah 1+1?","1","2","3","4","5","B"\n"Ibukota Indonesia?","Jakarta","Bandung","Surabaya","Medan","Bali","A"';
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'template_soal.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!selectedSubject || selectedSubject === 'all') {
+      toast.error('Pilih mata pelajaran terlebih dahulu untuk import');
+      e.target.value = '';
+      return;
+    }
+
+    setImporting(true);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        try {
+          const rows = results.data as Record<string, string>[];
+          if (rows.length === 0) {
+            toast.error('File CSV kosong');
+            return;
+          }
+
+          const validAnswers = ['A', 'B', 'C', 'D', 'E'];
+          const questions = rows.map((row, i) => {
+            const soal = (row['soal'] || '').trim();
+            const jawaban = (row['jawaban'] || '').trim().toUpperCase();
+            if (!soal) throw new Error(`Baris ${i + 2}: Soal kosong`);
+            if (!validAnswers.includes(jawaban)) throw new Error(`Baris ${i + 2}: Jawaban harus A-E, ditemukan "${jawaban}"`);
+            return {
+              subject_id: selectedSubject,
+              question: soal,
+              option_a: (row['pilihan_a'] || '').trim(),
+              option_b: (row['pilihan_b'] || '').trim(),
+              option_c: (row['pilihan_c'] || '').trim(),
+              option_d: (row['pilihan_d'] || '').trim(),
+              option_e: (row['pilihan_e'] || '').trim(),
+              answer: jawaban,
+            };
+          });
+
+          const { error } = await supabase.from('questions').insert(questions);
+          if (error) throw error;
+
+          toast.success(`${questions.length} soal berhasil diimport!`);
+          fetchData();
+        } catch (err: any) {
+          toast.error(err.message || 'Gagal import');
+        } finally {
+          setImporting(false);
+          e.target.value = '';
+        }
+      },
+      error: () => {
+        toast.error('Gagal membaca file CSV');
+        setImporting(false);
+        e.target.value = '';
+      },
+    });
+  };
+
   return (
     <div className="animate-fade-in">
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -399,42 +473,71 @@ function SoalPanel() {
           </SelectContent>
         </Select>
 
-        <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditId(null); setForm({ subject_id: '', question: '', option_a: '', option_b: '', option_c: '', option_d: '', option_e: '', answer: '' }); } }}>
-          <DialogTrigger asChild>
-            <Button className="gradient-primary text-primary-foreground shadow-neon">
-              <Plus className="w-4 h-4 mr-1" /> Tambah Soal
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>{editId ? 'Edit' : 'Tambah'} Soal</DialogTitle></DialogHeader>
-            <div className="space-y-4 mt-4">
-              <div>
-                <Label>Mata Pelajaran</Label>
-                <Select value={form.subject_id} onValueChange={v => setForm(f => ({ ...f, subject_id: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Pilih mapel" /></SelectTrigger>
-                  <SelectContent>
-                    {subjects.map(s => <SelectItem key={s.id} value={s.id}>{s.nama_mapel}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-1">
+            <Download className="w-4 h-4" /> Template CSV
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={handleImport}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing || !selectedSubject || selectedSubject === 'all'}
+            className="gap-1"
+          >
+            <Upload className="w-4 h-4" />
+            {importing ? 'Mengimport...' : 'Import CSV'}
+          </Button>
+
+          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setEditId(null); setForm({ subject_id: '', question: '', option_a: '', option_b: '', option_c: '', option_d: '', option_e: '', answer: '' }); } }}>
+            <DialogTrigger asChild>
+              <Button className="gradient-primary text-primary-foreground shadow-neon">
+                <Plus className="w-4 h-4 mr-1" /> Tambah Soal
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader><DialogTitle>{editId ? 'Edit' : 'Tambah'} Soal</DialogTitle></DialogHeader>
+              <div className="space-y-4 mt-4">
+                <div>
+                  <Label>Mata Pelajaran</Label>
+                  <Select value={form.subject_id} onValueChange={v => setForm(f => ({ ...f, subject_id: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Pilih mapel" /></SelectTrigger>
+                    <SelectContent>
+                      {subjects.map(s => <SelectItem key={s.id} value={s.id}>{s.nama_mapel}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div><Label>Soal</Label><textarea className="w-full p-3 rounded-lg border border-input bg-background text-foreground min-h-[80px] resize-y" value={form.question} onChange={e => setForm(f => ({ ...f, question: e.target.value }))} /></div>
+                {(['A', 'B', 'C', 'D', 'E'] as const).map(opt => (
+                  <div key={opt}><Label>Pilihan {opt}</Label><Input value={form[`option_${opt.toLowerCase()}` as keyof typeof form]} onChange={e => setForm(f => ({ ...f, [`option_${opt.toLowerCase()}`]: e.target.value }))} /></div>
+                ))}
+                <div>
+                  <Label>Jawaban Benar</Label>
+                  <Select value={form.answer} onValueChange={v => setForm(f => ({ ...f, answer: v }))}>
+                    <SelectTrigger><SelectValue placeholder="Pilih jawaban" /></SelectTrigger>
+                    <SelectContent>
+                      {['A', 'B', 'C', 'D', 'E'].map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={handleSave} className="w-full gradient-primary text-primary-foreground">Simpan</Button>
               </div>
-              <div><Label>Soal</Label><textarea className="w-full p-3 rounded-lg border border-input bg-background text-foreground min-h-[80px] resize-y" value={form.question} onChange={e => setForm(f => ({ ...f, question: e.target.value }))} /></div>
-              {(['A', 'B', 'C', 'D', 'E'] as const).map(opt => (
-                <div key={opt}><Label>Pilihan {opt}</Label><Input value={form[`option_${opt.toLowerCase()}` as keyof typeof form]} onChange={e => setForm(f => ({ ...f, [`option_${opt.toLowerCase()}`]: e.target.value }))} /></div>
-              ))}
-              <div>
-                <Label>Jawaban Benar</Label>
-                <Select value={form.answer} onValueChange={v => setForm(f => ({ ...f, answer: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Pilih jawaban" /></SelectTrigger>
-                  <SelectContent>
-                    {['A', 'B', 'C', 'D', 'E'].map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button onClick={handleSave} className="w-full gradient-primary text-primary-foreground">Simpan</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
+
+      {selectedSubject === 'all' && (
+        <div className="mb-4 p-3 rounded-xl bg-accent/10 border border-accent/20 text-sm text-card-foreground">
+          💡 Pilih mata pelajaran terlebih dahulu untuk menggunakan fitur Import CSV
+        </div>
+      )}
 
       <div className="space-y-3">
         {questions.map((q, i) => (

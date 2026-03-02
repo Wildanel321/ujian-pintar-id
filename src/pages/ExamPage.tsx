@@ -108,12 +108,12 @@ export default function ExamPage() {
       setTimeLeft((subjectData as Subject).durasi * 60);
 
       const { data: questionsData } = await supabase
-        .from('questions')
+        .from('questions_student' as any)
         .select('id, question, option_a, option_b, option_c, option_d, option_e')
         .eq('subject_id', subjectId);
 
       if (questionsData) {
-        setQuestions(shuffleArray(questionsData as Question[]));
+        setQuestions(shuffleArray(questionsData as unknown as Question[]));
       }
 
       // Create exam session
@@ -172,25 +172,22 @@ export default function ExamPage() {
     try {
       if (!profile || !subjectId) return;
 
-      // Fetch correct answers
-      const { data: questionsWithAnswers } = await supabase
-        .from('questions')
-        .select('id, answer')
-        .eq('subject_id', subjectId);
-
-      let correct = 0;
-      let wrong = 0;
-      const answerMap = new Map((questionsWithAnswers || []).map((q: any) => [q.id, q.answer]));
-
-      for (const q of questions) {
-        const userAnswer = answers[q.id];
-        const correctAnswer = answerMap.get(q.id);
-        if (userAnswer === correctAnswer) correct++;
-        else if (userAnswer) wrong++;
-      }
-
-      const score = questions.length > 0 ? Math.round((correct / questions.length) * 100) : 0;
       const durationMinutes = subject ? subject.durasi - Math.floor(timeLeft / 60) : 0;
+
+      // Grade via edge function (answers never exposed to client)
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/grade-exam`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authSession?.access_token}`,
+        },
+        body: JSON.stringify({ subject_id: subjectId, answers, profile_id: profile.id }),
+      });
+      const gradeResult = await res.json();
+      if (!res.ok) throw new Error(gradeResult.error);
+
+      const { score, correct, wrong } = gradeResult;
 
       await supabase.from('results').insert({
         user_id: profile.id,
