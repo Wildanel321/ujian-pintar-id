@@ -45,6 +45,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "answers_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions_student"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "answers_user_id_fkey"
             columns: ["user_id"]
             isOneToOne: false
@@ -264,7 +271,50 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      questions_student: {
+        Row: {
+          created_at: string | null
+          id: string | null
+          option_a: string | null
+          option_b: string | null
+          option_c: string | null
+          option_d: string | null
+          option_e: string | null
+          question: string | null
+          subject_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string | null
+          option_a?: string | null
+          option_b?: string | null
+          option_c?: string | null
+          option_d?: string | null
+          option_e?: string | null
+          question?: string | null
+          subject_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string | null
+          option_a?: string | null
+          option_b?: string | null
+          option_c?: string | null
+          option_d?: string | null
+          option_e?: string | null
+          question?: string | null
+          subject_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "questions_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       check_admin_exists: { Args: never; Returns: boolean }
