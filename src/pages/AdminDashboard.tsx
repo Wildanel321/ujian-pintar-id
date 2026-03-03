@@ -796,8 +796,39 @@ function NilaiPanel() {
     fetch();
   }, []);
 
+  const exportCSV = () => {
+    if (results.length === 0) {
+      toast.error('Tidak ada data untuk diexport');
+      return;
+    }
+    const rows = results.map(r => ({
+      Nama: r.profiles?.name || '-',
+      Kelas: r.profiles?.kelas || '-',
+      'Mata Pelajaran': r.subjects?.nama_mapel || '-',
+      Nilai: r.score,
+      Benar: r.correct_count,
+      Salah: r.wrong_count,
+      'Durasi (menit)': r.duration_minutes ?? '-',
+      Tanggal: new Date(r.created_at).toLocaleDateString('id-ID'),
+    }));
+    const csv = Papa.unparse(rows);
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nilai_peserta_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('File CSV berhasil didownload');
+  };
+
   return (
     <div className="animate-fade-in">
+      <div className="flex justify-end mb-4">
+        <Button variant="outline" size="sm" onClick={exportCSV} className="gap-1">
+          <Download className="w-4 h-4" /> Export CSV
+        </Button>
+      </div>
       <div className="glass-card rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
