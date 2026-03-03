@@ -22,7 +22,20 @@ Deno.serve(async (req) => {
     const { data: { user } } = await callerClient.auth.getUser(token);
     if (!user) throw new Error("Unauthorized");
 
-    const { subject_id, answers, profile_id } = await req.json();
+    const { subject_id, answers, profile_id, duration_minutes, session_id } = await req.json();
+
+    if (!subject_id || !profile_id) throw new Error("Missing required fields");
+
+    // Verify profile belongs to caller
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('id, auth_id')
+      .eq('id', profile_id)
+      .single();
+
+    if (!profile || profile.auth_id !== user.id) {
+      throw new Error("Forbidden");
+    }
 
     // Get correct answers from DB (server-side only)
     const { data: questions } = await supabaseAdmin
@@ -38,7 +51,7 @@ Deno.serve(async (req) => {
 
     let correct = 0;
     let wrong = 0;
-    for (const [questionId, userAnswer] of Object.entries(answers)) {
+    for (const [questionId, userAnswer] of Object.entries(answers || {})) {
       const correctAnswer = answerMap.get(questionId);
       if (userAnswer === correctAnswer) correct++;
       else if (userAnswer) wrong++;
@@ -46,6 +59,26 @@ Deno.serve(async (req) => {
 
     const total = questions.length;
     const score = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+    // Insert result server-side (trusted)
+    const { error: insertError } = await supabaseAdmin.from('results').insert({
+      user_id: profile_id,
+      subject_id,
+      score,
+      correct_count: correct,
+      wrong_count: wrong,
+      duration_minutes: duration_minutes ?? null,
+    });
+
+    if (insertError) throw new Error("Failed to save result: " + insertError.message);
+
+    // Complete exam session if provided
+    if (session_id) {
+      await supabaseAdmin
+        .from('exam_sessions')
+        .update({ is_completed: true, ended_at: new Date().toISOString() })
+        .eq('id', session_id);
+    }
 
     return new Response(JSON.stringify({ score, correct, wrong, total }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

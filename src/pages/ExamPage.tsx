@@ -182,28 +182,18 @@ export default function ExamPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authSession?.access_token}`,
         },
-        body: JSON.stringify({ subject_id: subjectId, answers, profile_id: profile.id }),
+        body: JSON.stringify({
+          subject_id: subjectId,
+          answers,
+          profile_id: profile.id,
+          duration_minutes: durationMinutes,
+          session_id: sessionId,
+        }),
       });
       const gradeResult = await res.json();
       if (!res.ok) throw new Error(gradeResult.error);
 
       const { score, correct, wrong } = gradeResult;
-
-      await supabase.from('results').insert({
-        user_id: profile.id,
-        subject_id: subjectId,
-        score,
-        correct_count: correct,
-        wrong_count: wrong,
-        duration_minutes: durationMinutes,
-      });
-
-      if (sessionId) {
-        await supabase
-          .from('exam_sessions')
-          .update({ is_completed: true, ended_at: new Date().toISOString() })
-          .eq('id', sessionId);
-      }
 
       navigate('/result', { state: { score, correct, wrong, total: questions.length, duration: durationMinutes, subject: subject?.nama_mapel } });
     } catch {
