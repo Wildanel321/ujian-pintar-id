@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { signOut } from '@/lib/auth';
@@ -11,11 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import Papa from 'papaparse';
 import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
+} from 'recharts';
+import {
   BookOpen, Users, FileText, GraduationCap, BarChart3,
-  LogOut, Plus, Pencil, Trash2, Search, Upload, Download
+  LogOut, Plus, Pencil, Trash2, Search, Upload, Download, TrendingUp, Award, Clock
 } from 'lucide-react';
 
-type Tab = 'peserta' | 'soal' | 'mapel' | 'nilai';
+type Tab = 'peserta' | 'soal' | 'mapel' | 'nilai' | 'statistik';
 
 interface Profile {
   id: string;
@@ -61,7 +64,7 @@ interface Result {
 export default function AdminDashboard() {
   const { profile } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<Tab>('peserta');
+  const [activeTab, setActiveTab] = useState<Tab>('statistik');
 
   const handleLogout = async () => {
     await signOut();
@@ -69,6 +72,7 @@ export default function AdminDashboard() {
   };
 
   const tabs = [
+    { key: 'statistik' as Tab, label: 'Statistik', icon: BarChart3 },
     { key: 'peserta' as Tab, label: 'Peserta', icon: Users },
     { key: 'soal' as Tab, label: 'Soal', icon: FileText },
     { key: 'mapel' as Tab, label: 'Mata Pelajaran', icon: GraduationCap },
@@ -111,10 +115,215 @@ export default function AdminDashboard() {
           ))}
         </div>
 
+        {activeTab === 'statistik' && <StatistikPanel />}
         {activeTab === 'peserta' && <PesertaPanel />}
         {activeTab === 'soal' && <SoalPanel />}
         {activeTab === 'mapel' && <MapelPanel />}
         {activeTab === 'nilai' && <NilaiPanel />}
+      </div>
+    </div>
+  );
+}
+
+const CHART_COLORS = [
+  'hsl(200, 98%, 39%)', 'hsl(142, 76%, 36%)', 'hsl(45, 93%, 58%)',
+  'hsl(0, 72%, 50%)', 'hsl(270, 76%, 55%)', 'hsl(180, 70%, 40%)',
+];
+
+function StatistikPanel() {
+  const [results, setResults] = useState<any[]>([]);
+  const [subjects, setSubjects] = useState<any[]>([]);
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [questions, setQuestions] = useState<any[]>([]);
+
+  useEffect(() => {
+    async function fetchAll() {
+      const [resR, resS, resP, resQ] = await Promise.all([
+        supabase.from('results').select('*, profiles(name, kelas), subjects(nama_mapel)'),
+        supabase.from('subjects').select('*'),
+        supabase.from('profiles').select('*').eq('role', 'peserta'),
+        supabase.from('questions').select('id, subject_id'),
+      ]);
+      if (resR.data) setResults(resR.data);
+      if (resS.data) setSubjects(resS.data);
+      if (resP.data) setProfiles(resP.data);
+      if (resQ.data) setQuestions(resQ.data);
+    }
+    fetchAll();
+  }, []);
+
+  const avgPerSubject = useMemo(() => {
+    const map: Record<string, { total: number; count: number; name: string }> = {};
+    results.forEach(r => {
+      const name = r.subjects?.nama_mapel || 'Unknown';
+      if (!map[r.subject_id]) map[r.subject_id] = { total: 0, count: 0, name };
+      map[r.subject_id].total += r.score;
+      map[r.subject_id].count += 1;
+    });
+    return Object.values(map).map(v => ({
+      mapel: v.name,
+      'Rata-rata': Math.round(v.total / v.count),
+    }));
+  }, [results]);
+
+  const scoreDistribution = useMemo(() => {
+    const buckets = [
+      { range: '0-30', min: 0, max: 30, count: 0 },
+      { range: '31-50', min: 31, max: 50, count: 0 },
+      { range: '51-70', min: 51, max: 70, count: 0 },
+      { range: '71-90', min: 71, max: 90, count: 0 },
+      { range: '91-100', min: 91, max: 100, count: 0 },
+    ];
+    results.forEach(r => {
+      const b = buckets.find(b => r.score >= b.min && r.score <= b.max);
+      if (b) b.count++;
+    });
+    return buckets.map(b => ({ name: b.range, Jumlah: b.count }));
+  }, [results]);
+
+  const questionCountPerSubject = useMemo(() => {
+    const map: Record<string, number> = {};
+    questions.forEach(q => { map[q.subject_id] = (map[q.subject_id] || 0) + 1; });
+    return subjects.map(s => ({ name: s.nama_mapel, value: map[s.id] || 0 })).filter(s => s.value > 0);
+  }, [questions, subjects]);
+
+  const totalPeserta = profiles.length;
+  const totalUjian = results.length;
+  const avgScore = results.length > 0 ? Math.round(results.reduce((a, r) => a + r.score, 0) / results.length) : 0;
+  const avgDuration = results.filter(r => r.duration_minutes).length > 0
+    ? Math.round(results.filter(r => r.duration_minutes).reduce((a, r) => a + (r.duration_minutes || 0), 0) / results.filter(r => r.duration_minutes).length)
+    : 0;
+
+  const summaryCards = [
+    { label: 'Total Peserta', value: totalPeserta, icon: Users, color: 'text-primary' },
+    { label: 'Total Ujian Selesai', value: totalUjian, icon: FileText, color: 'text-success' },
+    { label: 'Rata-rata Nilai', value: avgScore, icon: TrendingUp, color: 'text-accent-foreground' },
+    { label: 'Rata-rata Durasi', value: `${avgDuration} mnt`, icon: Clock, color: 'text-muted-foreground' },
+  ];
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {summaryCards.map(card => (
+          <div key={card.label} className="glass-card rounded-2xl p-5">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-primary/10">
+                <card.icon className={`w-5 h-5 ${card.color}`} />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-card-foreground">{card.value}</p>
+                <p className="text-xs text-muted-foreground">{card.label}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Charts Row 1 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Average Score per Subject */}
+        <div className="glass-card rounded-2xl p-5">
+          <h3 className="font-semibold text-card-foreground mb-4 flex items-center gap-2">
+            <Award className="w-4 h-4 text-primary" /> Rata-rata Nilai per Mapel
+          </h3>
+          {avgPerSubject.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={avgPerSubject}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="mapel" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
+                <Tooltip
+                  contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', color: 'hsl(var(--card-foreground))' }}
+                />
+                <Bar dataKey="Rata-rata" radius={[8, 8, 0, 0]}>
+                  {avgPerSubject.map((_, i) => (
+                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-center text-muted-foreground py-12">Belum ada data nilai</p>
+          )}
+        </div>
+
+        {/* Score Distribution */}
+        <div className="glass-card rounded-2xl p-5">
+          <h3 className="font-semibold text-card-foreground mb-4 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-primary" /> Distribusi Nilai
+          </h3>
+          {results.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={scoreDistribution}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }} />
+                <Tooltip
+                  contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', color: 'hsl(var(--card-foreground))' }}
+                />
+                <Bar dataKey="Jumlah" fill="hsl(var(--primary))" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-center text-muted-foreground py-12">Belum ada data nilai</p>
+          )}
+        </div>
+      </div>
+
+      {/* Charts Row 2 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Question Distribution Pie */}
+        <div className="glass-card rounded-2xl p-5">
+          <h3 className="font-semibold text-card-foreground mb-4 flex items-center gap-2">
+            <FileText className="w-4 h-4 text-primary" /> Jumlah Soal per Mapel
+          </h3>
+          {questionCountPerSubject.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie data={questionCountPerSubject} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, value }) => `${name}: ${value}`}>
+                  {questionCountPerSubject.map((_, i) => (
+                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '12px', color: 'hsl(var(--card-foreground))' }} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-center text-muted-foreground py-12">Belum ada soal</p>
+          )}
+        </div>
+
+        {/* Top Students */}
+        <div className="glass-card rounded-2xl p-5">
+          <h3 className="font-semibold text-card-foreground mb-4 flex items-center gap-2">
+            <Award className="w-4 h-4 text-primary" /> Top 10 Nilai Tertinggi
+          </h3>
+          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+            {results.length > 0 ? (
+              [...results]
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 10)
+                .map((r, i) => (
+                  <div key={r.id} className="flex items-center justify-between py-2 px-3 rounded-xl hover:bg-muted/30 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                        i < 3 ? 'gradient-primary text-primary-foreground' : 'bg-muted/50 text-muted-foreground'
+                      }`}>{i + 1}</span>
+                      <div>
+                        <p className="text-sm font-medium text-card-foreground">{r.profiles?.name || '-'}</p>
+                        <p className="text-xs text-muted-foreground">{r.subjects?.nama_mapel} • {r.profiles?.kelas || '-'}</p>
+                      </div>
+                    </div>
+                    <span className={`text-sm font-bold ${r.score >= 70 ? 'text-success' : 'text-destructive'}`}>{r.score}</span>
+                  </div>
+                ))
+            ) : (
+              <p className="text-center text-muted-foreground py-12">Belum ada data</p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
